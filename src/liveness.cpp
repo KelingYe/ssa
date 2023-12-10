@@ -93,6 +93,7 @@ list<AS_operand**> get_all_AS_operand(L_stm* stm) {
 }
 
 std::list<AS_operand**> get_def_operand(L_stm* stm) {
+    //todo
     list<AS_operand**> def_operand_list;
     switch (stm->type) {
         case L_StmKind::T_BINOP: {
@@ -156,6 +157,7 @@ list<Temp_temp*> get_def(L_stm* stm) {
 }
 
 std::list<AS_operand**> get_use_operand(L_stm* stm) {
+    //todo
     list<AS_operand**> use_operand_list;
     switch (stm->type) {
         case L_StmKind::T_BINOP: {
@@ -258,6 +260,7 @@ TempSet_& FG_use(GRAPH::Node<LLVMIR::L_block*>* r) {
 }
 
 static void Use_def(GRAPH::Node<LLVMIR::L_block*>* r, GRAPH::Graph<LLVMIR::L_block*>& bg, std::vector<Temp_temp*>& args) {
+    //todo
     for (auto ir:r->info->instrs){
         for (auto tmp:get_def(ir)){
             TempSet_add(&UseDefTable[r].def,tmp);
@@ -279,6 +282,7 @@ static void Use_def(GRAPH::Node<LLVMIR::L_block*>* r, GRAPH::Graph<LLVMIR::L_blo
 }
 static int gi=0;
 static bool LivenessIteration(GRAPH::Node<LLVMIR::L_block*>* r, GRAPH::Graph<LLVMIR::L_block*>& bg) {
+    //todo
     gi++;
     bool changed=false;
     for (auto node:bg.mynodes){

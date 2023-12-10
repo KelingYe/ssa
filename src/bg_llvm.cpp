@@ -15,6 +15,7 @@ using namespace GRAPH;
 
 static Graph<L_block*> RA_bg;
 static unordered_map<Temp_label*, L_block*> block_env;
+//定义extraSet
 static unordered_set<int> extraSet;
 
 Graph<L_block*>& Bg_graph() {
@@ -68,6 +69,7 @@ Graph<L_block*>& Create_bg(list<L_block*>& bl) {
 
 // maybe useful
 static void DFS(Node<L_block*>* r, Graph<L_block*>& bg) {
+    //todo
     extraSet.erase(r->nodeid());
     for (int node:*r->succ()){
         if (extraSet.find(node)!=extraSet.end()){
@@ -78,6 +80,7 @@ static void DFS(Node<L_block*>* r, Graph<L_block*>& bg) {
 }
 
 void SingleSourceGraph(Node<L_block*>* r, Graph<L_block*>& bg,L_func*fun) {
+    //todo
     extraSet.clear();
     for (auto node:bg.mynodes){
         extraSet.insert(node.first);

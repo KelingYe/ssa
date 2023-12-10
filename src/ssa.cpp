@@ -99,6 +99,7 @@ void combine_addr(LLVMIR::L_func* fun) {
 }
 
 void mem2reg(LLVMIR::L_func* fun) {
+    //todo
     L_block* first_block = fun->blocks.front();
     unordered_map<Temp_temp*, AS_operand*> alloca_temp2ASoper;
     for (auto iter = first_block->instrs.begin(); iter != first_block->instrs.end();) {
@@ -126,6 +127,7 @@ void mem2reg(LLVMIR::L_func* fun) {
 }
 
 void Dominators(GRAPH::Graph<LLVMIR::L_block*>& bg) {
+    //todo
     unordered_set<L_block*> blockSet;
     blockSet.insert(bg.mynodes[0]->info);
     dominators.emplace(bg.mynodes[0]->info,blockSet);
@@ -184,6 +186,7 @@ void printf_DF() {
 }
 
 void tree_Dominators(GRAPH::Graph<LLVMIR::L_block*>& bg) {
+    //todo
     for (auto node:bg.mynodes){
         unordered_set<L_block*> candidate=dominators[node.second->info];
         candidate.erase(node.second->info);
@@ -212,6 +215,7 @@ void tree_Dominators(GRAPH::Graph<LLVMIR::L_block*>& bg) {
 }
 
 void computeDF(GRAPH::Graph<LLVMIR::L_block*>& bg, GRAPH::Node<LLVMIR::L_block*>* r) {
+    //todo
     unordered_set<L_block*> df;
     for (auto y:r->succs){
         if (tree_dominators[bg.mynodes[y]->info].pred!=r->info){
@@ -230,6 +234,7 @@ void computeDF(GRAPH::Graph<LLVMIR::L_block*>& bg, GRAPH::Node<LLVMIR::L_block*>
 
 // 只对标量做
 void Place_phi_fu(GRAPH::Graph<LLVMIR::L_block*>& bg, L_func* fun) {
+    //todo
     unordered_map<Temp_temp*, unordered_set<Node<LLVMIR::L_block *>*>> defsites;
     unordered_map<L_block*, unordered_set<Temp_temp*>> A_phi;
     for (auto node: bg.mynodes) {
@@ -280,6 +285,7 @@ static list<AS_operand**> get_use_int_operand(LLVMIR::L_stm* stm) {
 }
 
 static void Rename_temp(GRAPH::Graph<LLVMIR::L_block*>& bg, GRAPH::Node<LLVMIR::L_block*>* n, unordered_map<Temp_temp*, stack<Temp_temp*>>& Stack) {
+    //todo
     list<Temp_temp*> record;
     for (auto ir:n->info->instrs){
         if (ir->type!=L_StmKind::T_PHI){
@@ -320,6 +326,7 @@ static void Rename_temp(GRAPH::Graph<LLVMIR::L_block*>& bg, GRAPH::Node<LLVMIR::
 }
 
 void Rename(GRAPH::Graph<LLVMIR::L_block*>& bg) {
+    //todo
     unordered_map<Temp_temp*, stack<Temp_temp*>> stk;
     for (auto &iter : temp2ASoper)
     {
