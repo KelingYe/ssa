@@ -15,6 +15,7 @@ using namespace GRAPH;
 
 static Graph<L_block*> RA_bg;
 static unordered_map<Temp_label*, L_block*> block_env;
+static unordered_set<int> extraSet;
 
 Graph<L_block*>& Bg_graph() {
     return RA_bg;
@@ -67,11 +68,31 @@ Graph<L_block*>& Create_bg(list<L_block*>& bl) {
 
 // maybe useful
 static void DFS(Node<L_block*>* r, Graph<L_block*>& bg) {
-
+    extraSet.erase(r->nodeid());
+    for (int node:*r->succ()){
+        if (extraSet.find(node)!=extraSet.end()){
+            Node<L_block*>* success=bg.mynodes[node];
+            DFS(success,bg);
+        }
+    }
 }
 
 void SingleSourceGraph(Node<L_block*>* r, Graph<L_block*>& bg,L_func*fun) {
-    //   Todo
+    extraSet.clear();
+    for (auto node:bg.mynodes){
+        extraSet.insert(node.first);
+    }
+    DFS(r,bg);
+    for (int node:extraSet){
+        fun->blocks.remove(bg.mynodes[node]->nodeInfo());
+        NodeSet predSet = *bg.mynodes[node]->pred(), succSet = *bg.mynodes[node]->succ();
+        for (int pred: predSet)
+            bg.rmEdge(bg.mynodes[pred], bg.mynodes[node]);
+        for (int succ: succSet)
+            bg.rmEdge(bg.mynodes[node], bg.mynodes[succ]);
+        bg.rmNode(bg.mynodes[node]);
+        bg.nodecount--;
+    }
 }
 
 void Show_graph(FILE* out,GRAPH::Graph<LLVMIR::L_block*>&bg){
