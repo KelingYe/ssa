@@ -257,6 +257,13 @@ std::vector<LLVMIR::L_def *> ast2llvmProg_first(aA_program p)
     defs.push_back(L_Funcdecl("putarray", vector<TempDef>{TempDef(TempType::INT_TEMP), TempDef(TempType::INT_PTR, -1)}, FuncType(ReturnType::VOID_TYPE)));
     defs.push_back(L_Funcdecl("_sysy_starttime", vector<TempDef>{TempDef(TempType::INT_TEMP)}, FuncType(ReturnType::VOID_TYPE)));
     defs.push_back(L_Funcdecl("_sysy_stoptime", vector<TempDef>{TempDef(TempType::INT_TEMP)}, FuncType(ReturnType::VOID_TYPE)));
+    funcReturnMap.emplace("getch", FuncType(ReturnType::INT_TYPE));
+    funcReturnMap.emplace("getint", FuncType(ReturnType::INT_TYPE));
+    funcReturnMap.emplace("putch", FuncType(ReturnType::VOID_TYPE));
+    funcReturnMap.emplace("putint", FuncType(ReturnType::VOID_TYPE));
+    funcReturnMap.emplace("putarray", FuncType(ReturnType::VOID_TYPE));
+    funcReturnMap.emplace("_sysy_starttime", FuncType(ReturnType::VOID_TYPE));
+    funcReturnMap.emplace("_sysy_stoptime", FuncType(ReturnType::VOID_TYPE));
     for (const auto &v : p->programElements)
     {
         switch (v->kind)
@@ -527,6 +534,13 @@ std::vector<Func_local *> ast2llvmProg_second(aA_program p)
     return funs;
 }
 
+void ast2llvmBlockList(vector<aA_codeBlockStmt>& stmts, Temp_label* con_label, Temp_label* bre_label){
+    for (aA_codeBlockStmt stmt: stmts){
+        ast2llvmBlock(stmt, con_label, bre_label);
+    }
+}
+
+
 Func_local *ast2llvmFunc(aA_fnDef f)
 {
     vector<Temp_temp *> args;
@@ -589,10 +603,7 @@ Func_local *ast2llvmFunc(aA_fnDef f)
         emit_irs.push_back(L_Label(l));
     }
     // 对函数体中的每条指令处理
-    for (const auto &stmt : f->stmts)
-    {
-        ast2llvmBlock(stmt, nullptr, nullptr);
-    }
+    ast2llvmBlockList(f->stmts, nullptr, nullptr);
     // 对没有return语句的函数处理？？？
     if (emit_irs.back()->type != L_StmKind::T_RETURN)
     {
@@ -601,202 +612,175 @@ Func_local *ast2llvmFunc(aA_fnDef f)
         else
             emit_irs.push_back(L_Ret(AS_Operand_Const(0)));
     }
+    auto iter = emit_irs.begin();
+    while (iter != emit_irs.end()){
+        if (((*iter)->type == L_StmKind::T_JUMP || (*iter)->type == L_StmKind::T_CJUMP
+            || (*iter)->type == L_StmKind::T_RETURN)
+            && next(iter) != emit_irs.end() && (*next(iter))->type != L_StmKind::T_LABEL){
+            Temp_label* label = Temp_newlabel();
+            iter = emit_irs.insert(next(iter), L_Label(label));
+        }
+        iter++;
+    }
     return new Func_local(fun_name, funcReturnMap[fun_name], args, emit_irs);
 }
 
-void ast2llvmBlock(aA_codeBlockStmt b, Temp_label *con_label, Temp_label *bre_label)
+void ast2llvmBlock(aA_codeBlockStmt b,Temp_label *con_label,Temp_label *bre_label)
 {
     switch (b->kind)
-    {
-    case A_codeBlockStmtType::A_assignStmtKind:
-    {
-        AS_operand *r = ast2llvmRightVal(b->u.assignStmt->rightVal);
-        AS_operand *l = ast2llvmLeftVal(b->u.assignStmt->leftVal);
-        // 如果l是int类型使用L_Move
-        if (l->kind == OperandKind::TEMP && l->u.TEMP->type == TempType::INT_TEMP)
         {
-            emit_irs.push_back(L_Move(r, l));
+        case A_codeBlockStmtType::A_assignStmtKind:
+        {
+            AS_operand* r=ast2llvmRightVal(b->u.assignStmt->rightVal);
+            AS_operand* l=ast2llvmLeftVal(b->u.assignStmt->leftVal);
+            emit_irs.push_back(L_Store(r,l));
             break;
         }
-        //否则使用L_Store
-        else
-        {
-            emit_irs.push_back(L_Store(r, l));
+        case A_codeBlockStmtType::A_breakStmtKind:{
+            assert(bre_label);
+            emit_irs.push_back(L_Jump(bre_label));
+            break;
         }
-
-        break;
-    }
-    case A_codeBlockStmtType::A_breakStmtKind:
-    {
-        assert(bre_label);
-        emit_irs.push_back(L_Jump(bre_label));
-        break;
-    }
-    case A_codeBlockStmtType::A_callStmtKind:
-    {
-        string funcName = *b->u.callStmt->fnCall->fn;
-        vector<AS_operand *> args;
-        for (const auto &val : b->u.callStmt->fnCall->vals)
+        case A_codeBlockStmtType::A_callStmtKind:
         {
-            args.push_back(ast2llvmRightVal(val));
-        }
-        emit_irs.push_back(L_Voidcall(funcName, args));
-        break;
-    }
-    case A_codeBlockStmtType::A_continueStmtKind:
-    {
-        assert(con_label);
-        emit_irs.push_back(L_Jump(con_label));
-        break;
-    }
-    case A_codeBlockStmtType::A_ifStmtKind:
-    {
-        Temp_label *if_label = Temp_newlabel();
-        Temp_label *else_label = Temp_newlabel();
-        Temp_label *after_label = Temp_newlabel();
-        ast2llvmBoolExpr(b->u.ifStmt->boolExpr, if_label, else_label);
-        emit_irs.push_back(L_Label(if_label));
-        for (aA_codeBlockStmt stmt : b->u.ifStmt->ifStmts)
-        {
-            ast2llvmBlock(stmt, con_label, bre_label);
-        }
-        emit_irs.push_back(L_Jump(after_label));
-        emit_irs.push_back(L_Label(else_label));
-        for (aA_codeBlockStmt stmt : b->u.ifStmt->elseStmts)
-        {
-            ast2llvmBlock(stmt, con_label, bre_label);
-        }
-        emit_irs.push_back(L_Jump(after_label));
-        emit_irs.push_back(L_Label(after_label));
-        break;
-    }
-    case A_codeBlockStmtType::A_returnStmtKind:
-    {
-        emit_irs.push_back(L_Ret(ast2llvmRightVal(b->u.returnStmt->retVal)));
-        break;
-    }
-    case A_codeBlockStmtType::A_varDeclStmtKind:
-    {
-        if (b->u.varDeclStmt->kind == A_varDeclStmtType::A_varDeclKind)
-        {
-            if (b->u.varDeclStmt->u.varDecl->kind == A_varDeclType::A_varDeclScalarKind)
-            {
-                string id = *b->u.varDeclStmt->u.varDecl->u.declScalar->id;
-                Temp_temp *var;
-                if (b->u.varDeclStmt->u.varDecl->u.declScalar->type->type == A_dataType::A_nativeTypeKind)
-                {
-                    var = Temp_newtemp_int_ptr(0);
-                    localVarMap.emplace(id, var);
-                    emit_irs.push_back(L_Alloca(AS_Operand_Temp(var)));
-                }
-                else if (b->u.varDeclStmt->u.varDecl->u.declScalar->type->type == A_dataType::A_structTypeKind)
-                {
-                    var = Temp_newtemp_struct_ptr(0, *b->u.varDeclStmt->u.varDecl->u.declScalar->type->u.structType);
-                    localVarMap.emplace(id, var);
-                    emit_irs.push_back(L_Alloca(AS_Operand_Temp(var)));
-                }
+            string funcName=*b->u.callStmt->fnCall->fn;
+            vector<AS_operand*> args;
+            for (const auto &val:b->u.callStmt->fnCall->vals){
+                args.push_back(ast2llvmRightVal(val));
             }
-            else if (b->u.varDeclStmt->u.varDecl->kind == A_varDeclType::A_varDeclArrayKind)
-            {
-                int len = b->u.varDeclStmt->u.varDecl->u.declArray->len;
-                string id = *b->u.varDeclStmt->u.varDecl->u.declArray->id;
-                Temp_temp *var;
-                if (b->u.varDeclStmt->u.varDecl->u.declArray->type->type == A_dataType::A_nativeTypeKind)
-                {
-                    var = Temp_newtemp_int_ptr(len);
-                    localVarMap.emplace(id, var);
-                    emit_irs.push_back(L_Alloca(AS_Operand_Temp(var)));
-                }
-                else if (b->u.varDeclStmt->u.varDecl->u.declArray->type->type == A_dataType::A_structTypeKind)
-                {
-                    var = Temp_newtemp_struct_ptr(len, *b->u.varDeclStmt->u.varDecl->u.declArray->type->u.structType);
-                    localVarMap.emplace(id, var);
-                    emit_irs.push_back(L_Alloca(AS_Operand_Temp(var)));
-                }
+            if (funcReturnMap.find(funcName)!=funcReturnMap.end()){
+                emit_irs.push_back(L_Voidcall(funcName,args));
             }
+            else assert(0);
+            break;
         }
-        else if (b->u.varDeclStmt->kind == A_varDeclStmtType::A_varDefKind)
-        {
-            if (b->u.varDeclStmt->u.varDef->kind == A_varDefType::A_varDefScalarKind)
-            {
-                string id = *b->u.varDeclStmt->u.varDef->u.defScalar->id;
-                aA_rightVal val = b->u.varDeclStmt->u.varDef->u.defScalar->val;
-                Temp_temp *var;
-                AS_operand *dst;
-                if (b->u.varDeclStmt->u.varDef->u.defScalar->type->type == A_dataType::A_nativeTypeKind)
-                {
-                    var = Temp_newtemp_int_ptr(0);
-                    localVarMap.emplace(id, var);
-                    dst = AS_Operand_Temp(var);
-                    emit_irs.push_back(L_Alloca(dst));
-                    emit_irs.push_back(L_Store(ast2llvmRightVal(val), dst));
-                }
-                else if (b->u.varDeclStmt->u.varDef->u.defScalar->type->type == A_dataType::A_structTypeKind)
-                {
-                    var = Temp_newtemp_struct_ptr(0, *b->u.varDeclStmt->u.varDef->u.defScalar->type->u.structType);
-                    localVarMap.emplace(id, var);
-                    dst = AS_Operand_Temp(var);
-                    emit_irs.push_back(L_Alloca(dst));
-                }
-            }
-            else if (b->u.varDeclStmt->u.varDef->kind == A_varDefType::A_varDefArrayKind)
-            {
-                string id = *b->u.varDeclStmt->u.varDef->u.defArray->id;
-                int len = b->u.varDeclStmt->u.varDef->u.defArray->len;
-                vector<aA_rightVal> vals = b->u.varDeclStmt->u.varDef->u.defArray->vals;
-                Temp_temp *var;
-                AS_operand *base;
-                if (b->u.varDeclStmt->u.varDef->u.defArray->type->type == A_dataType::A_nativeTypeKind)
-                {
-                    var = Temp_newtemp_int_ptr(len);
-                    localVarMap.emplace(id, var);
-                    base = AS_Operand_Temp(var);
-                    emit_irs.push_back(L_Alloca(base));
-                    for (int i = 0; i < len; i++)
-                    {
-                        var = Temp_newtemp_int_ptr(0);
-                        AS_operand *target = AS_Operand_Temp(var);
-                        //对数组中的元素赋值
-                        emit_irs.push_back(L_Gep(target, base, AS_Operand_Const(i)));
-                        emit_irs.push_back(L_Store(ast2llvmRightVal(vals[i]), target));
+        case A_codeBlockStmtType::A_continueStmtKind:{
+            assert(con_label);
+            emit_irs.push_back(L_Jump(con_label));
+            break;
+        }
+        case A_codeBlockStmtType::A_ifStmtKind:{
+            Temp_label* if_label = Temp_newlabel();
+            Temp_label* else_label = Temp_newlabel();
+            Temp_label* after_label = Temp_newlabel();
+            ast2llvmBoolExpr(b->u.ifStmt->boolExpr, if_label, else_label);
+            emit_irs.push_back(L_Label(if_label));
+            ast2llvmBlockList(b->u.ifStmt->ifStmts, con_label, bre_label);
+            emit_irs.push_back(L_Jump(after_label));
+            emit_irs.push_back(L_Label(else_label));
+            ast2llvmBlockList(b->u.ifStmt->elseStmts, con_label, bre_label);
+            emit_irs.push_back(L_Jump(after_label));
+            emit_irs.push_back(L_Label(after_label));
+            break;
+        }
+        case A_codeBlockStmtType::A_returnStmtKind:{
+            emit_irs.push_back(L_Ret(ast2llvmRightVal(b->u.returnStmt->retVal)));
+            break;
+        }
+        case A_codeBlockStmtType::A_varDeclStmtKind:{
+            if (b->u.varDeclStmt->kind==A_varDeclStmtType::A_varDeclKind){
+                if (b->u.varDeclStmt->u.varDecl->kind==A_varDeclType::A_varDeclScalarKind){
+                    string id=*b->u.varDeclStmt->u.varDecl->u.declScalar->id;
+                    Temp_temp* var;
+                    if (b->u.varDeclStmt->u.varDecl->u.declScalar->type->type==A_dataType::A_nativeTypeKind){
+                        var=Temp_newtemp_int_ptr(0);
+                        if (localVarMap.find(id) != localVarMap.end()) localVarMap[id] = var;
+                        else localVarMap.emplace(id,var);
+                        emit_irs.push_back(L_Alloca(AS_Operand_Temp(var)));
+                    } else if (b->u.varDeclStmt->u.varDecl->u.declScalar->type->type==A_dataType::A_structTypeKind){
+                        var=Temp_newtemp_struct_ptr(0,*b->u.varDeclStmt->u.varDecl->u.declScalar->type->u.structType);
+                        if (localVarMap.find(id) != localVarMap.end()) localVarMap[id] = var;
+                        else localVarMap.emplace(id,var);
+                        emit_irs.push_back(L_Alloca(AS_Operand_Temp(var)));
+                    }
+                } else if (b->u.varDeclStmt->u.varDecl->kind==A_varDeclType::A_varDeclArrayKind){
+                    int len=b->u.varDeclStmt->u.varDecl->u.declArray->len;
+                    string id=*b->u.varDeclStmt->u.varDecl->u.declArray->id;
+                    Temp_temp* var;
+                    if (b->u.varDeclStmt->u.varDecl->u.declArray->type->type==A_dataType::A_nativeTypeKind){
+                        var=Temp_newtemp_int_ptr(len);
+                        if (localVarMap.find(id) != localVarMap.end()) localVarMap[id] = var;
+                        else localVarMap.emplace(id,var);
+                        emit_irs.push_back(L_Alloca(AS_Operand_Temp(var)));
+                    } else if (b->u.varDeclStmt->u.varDecl->u.declArray->type->type==A_dataType::A_structTypeKind){
+                        var=Temp_newtemp_struct_ptr(len,*b->u.varDeclStmt->u.varDecl->u.declArray->type->u.structType);
+                        if (localVarMap.find(id) != localVarMap.end()) localVarMap[id] = var;
+                        else localVarMap.emplace(id,var);
+                        emit_irs.push_back(L_Alloca(AS_Operand_Temp(var)));
                     }
                 }
-                else if (b->u.varDeclStmt->u.varDef->u.defArray->type->type == A_dataType::A_structTypeKind)
-                {
-                    var = Temp_newtemp_struct_ptr(len, *b->u.varDeclStmt->u.varDef->u.defArray->type->u.structType);
-                    localVarMap.emplace(id, var);
-                    base = AS_Operand_Temp(var);
-                    emit_irs.push_back(L_Alloca(base));
-                    for (int i = 0; i < len; i++)
-                    {
-                        var = Temp_newtemp_struct_ptr(0, *b->u.varDeclStmt->u.varDef->u.defArray->type->u.structType);
-                        AS_operand *target = AS_Operand_Temp(var);
-                          //对数组中的元素赋值
-                        emit_irs.push_back(L_Gep(target, base, AS_Operand_Const(i)));
+            } else if (b->u.varDeclStmt->kind==A_varDeclStmtType::A_varDefKind){
+                if (b->u.varDeclStmt->u.varDef->kind==A_varDefType::A_varDefScalarKind){
+                    string id=*b->u.varDeclStmt->u.varDef->u.defScalar->id;
+                    aA_rightVal val=b->u.varDeclStmt->u.varDef->u.defScalar->val;
+                    Temp_temp* var;
+                    AS_operand* dst;
+                    if (b->u.varDeclStmt->u.varDef->u.defScalar->type->type==A_dataType::A_nativeTypeKind){
+                        var=Temp_newtemp_int_ptr(0);
+                        if (localVarMap.find(id) != localVarMap.end()) localVarMap[id] = var;
+                        else localVarMap.emplace(id,var);
+                        dst=AS_Operand_Temp(var);
+                        emit_irs.push_back(L_Alloca(dst));
+                        emit_irs.push_back(L_Store(ast2llvmRightVal(val),dst));
+                    } else if (b->u.varDeclStmt->u.varDef->u.defScalar->type->type==A_dataType::A_structTypeKind){
+                        var=Temp_newtemp_struct_ptr(0,*b->u.varDeclStmt->u.varDef->u.defScalar->type->u.structType);
+                        if (localVarMap.find(id) != localVarMap.end()) localVarMap[id] = var;
+                        else localVarMap.emplace(id,var);
+                        dst=AS_Operand_Temp(var);
+                        emit_irs.push_back(L_Alloca(dst));
+                        // emit_irs.push_back(L_Store(ast2llvmRightVal(val),dst));
+                    }
+                } else if (b->u.varDeclStmt->u.varDef->kind==A_varDefType::A_varDefArrayKind){
+                    string id=*b->u.varDeclStmt->u.varDef->u.defArray->id;
+                    int len=b->u.varDeclStmt->u.varDef->u.defArray->len;
+                    vector<aA_rightVal> vals=b->u.varDeclStmt->u.varDef->u.defArray->vals;
+                    Temp_temp* var;
+                    AS_operand* base;
+                    if (b->u.varDeclStmt->u.varDef->u.defArray->type->type==A_dataType::A_nativeTypeKind){
+                        var=Temp_newtemp_int_ptr(len);
+                        if (localVarMap.find(id) != localVarMap.end()) localVarMap[id] = var;
+                        else localVarMap.emplace(id,var);
+                        base=AS_Operand_Temp(var);
+                        emit_irs.push_back(L_Alloca(base));
+                        for (int i=0;i<len;i++){
+                            var=Temp_newtemp_int_ptr(0);
+                            AS_operand* target=AS_Operand_Temp(var);
+                            emit_irs.push_back(L_Gep(target,base,AS_Operand_Const(i)));
+                            emit_irs.push_back(L_Store(ast2llvmRightVal(vals[i]),target));
+                        }
+                    } else if (b->u.varDeclStmt->u.varDef->u.defArray->type->type==A_dataType::A_structTypeKind){
+                        var=Temp_newtemp_struct_ptr(len,*b->u.varDeclStmt->u.varDef->u.defArray->type->u.structType);
+                        if (localVarMap.find(id) != localVarMap.end()) localVarMap[id] = var;
+                        else localVarMap.emplace(id,var);
+                        base=AS_Operand_Temp(var);
+                        emit_irs.push_back(L_Alloca(base));
+                        for (int i=0;i<len;i++){
+                            var=Temp_newtemp_struct_ptr(0,*b->u.varDeclStmt->u.varDef->u.defArray->type->u.structType);
+                            AS_operand* target=AS_Operand_Temp(var);
+                            emit_irs.push_back(L_Gep(target,base,AS_Operand_Const(i)));
+                            // emit_irs.push_back(L_Store(ast2llvmRightVal(vals[i]),target));
+                        }
                     }
                 }
             }
+            break;
         }
-        break;
-    }
-    case A_codeBlockStmtType::A_whileStmtKind:
-    {
-        Temp_label *while_label = Temp_newlabel();
-        emit_irs.push_back(L_Jump(while_label));
-        emit_irs.push_back(L_Label(while_label));
-        Temp_label *codeblock_label = Temp_newlabel();
-        Temp_label *break_label = Temp_newlabel();
-        ast2llvmBoolExpr(b->u.whileStmt->boolExpr, codeblock_label, break_label);
-        emit_irs.push_back(L_Label(codeblock_label));
-        for (auto stmt : b->u.whileStmt->whileStmts)
-            ast2llvmBlock(stmt, while_label, break_label);
-        emit_irs.push_back(L_Jump(while_label));
-        emit_irs.push_back(L_Label(break_label));
-    }
-    break;
-    default:
-        break;
-    }
+        case A_codeBlockStmtType::A_whileStmtKind:{
+            Temp_label* while_label = Temp_newlabel();
+            emit_irs.push_back(L_Jump(while_label));
+            emit_irs.push_back(L_Label(while_label));
+            Temp_label* codeblock_label = Temp_newlabel();
+            Temp_label* break_label = Temp_newlabel();
+            ast2llvmBoolExpr(b->u.whileStmt->boolExpr, codeblock_label, break_label);
+            emit_irs.push_back(L_Label(codeblock_label));
+            ast2llvmBlockList(b->u.whileStmt->whileStmts, while_label, break_label);
+            emit_irs.push_back(L_Jump(while_label));
+            emit_irs.push_back(L_Label(break_label));
+        }
+            break;
+        default:
+            break;
+        }
 }
 
 AS_operand *ast2llvmRightVal(aA_rightVal r)
@@ -1045,6 +1029,7 @@ void ast2llvmComOpExpr(aA_comExpr c, Temp_label *true_label, Temp_label *false_l
         break;
     case A_comOp::A_le:
         op = L_relopKind::T_le;
+        break;
     case A_comOp::A_gt:
         op = L_relopKind::T_gt;
         break;
